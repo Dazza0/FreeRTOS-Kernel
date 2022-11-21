@@ -4289,6 +4289,59 @@ void vTaskMissedYield( void )
 
 #endif /* configUSE_TRACE_FACILITY */
 
+#if ( configUSE_IDLE_HOOK == 1 )
+
+    /* This conditional compilation should use inequality to 0, not equality
+     * to 1.  This is to ensure portSUPPRESS_TICKS_AND_SLEEP() is called when
+     * user defined low power mode  implementations require
+     * configUSE_TICKLESS_IDLE to be set to a value other than 1. */
+    static void prvTicklessIdle( void )
+    {
+        TickType_t xExpectedIdleTime;
+
+        /* It is not desirable to suspend then resume the scheduler on
+         * each iteration of the idle task.  Therefore, a preliminary
+         * test of the expected idle time is performed without the
+         * scheduler suspended.  The result here is not necessarily
+         * valid. */
+        xExpectedIdleTime = prvGetExpectedIdleTime();
+
+        if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
+        {
+            vTaskSuspendAll();
+            {
+                /* Now the scheduler is suspended, the expected idle
+                 * time can be sampled again, and this time its value can
+                 * be used. */
+                configASSERT( xNextTaskUnblockTime >= xTickCount );
+                xExpectedIdleTime = prvGetExpectedIdleTime();
+
+                /* Define the following macro to set xExpectedIdleTime to 0
+                 * if the application does not want
+                 * portSUPPRESS_TICKS_AND_SLEEP() to be called. */
+                configPRE_SUPPRESS_TICKS_AND_SLEEP_PROCESSING( xExpectedIdleTime );
+
+                if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
+                {
+                    traceLOW_POWER_IDLE_BEGIN();
+                    portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime );
+                    traceLOW_POWER_IDLE_END();
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            ( void ) xTaskResumeAll();
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+    }
+
+#endif /* configUSE_TICKLESS_IDLE */
+
 /*
  * -----------------------------------------------------------
  * The MinimalIdle task.
@@ -4339,6 +4392,14 @@ void vTaskMissedYield( void )
                     }
                 }
             #endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configIDLE_SHOULD_YIELD == 1 ) ) */
+
+            /* This conditional compilation should use inequality to 0, not equality
+             * to 1.  This is to ensure portSUPPRESS_TICKS_AND_SLEEP() is called when
+             * user defined low power mode  implementations require
+             * configUSE_TICKLESS_IDLE to be set to a value other than 1. */
+            #if ( configUSE_TICKLESS_IDLE != 0 )
+                prvTicklessIdle();
+            #endif /* configUSE_TICKLESS_IDLE */
 
             #if ( configUSE_MINIMAL_IDLE_HOOK == 1 )
                 {
@@ -4441,49 +4502,7 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
          * user defined low power mode  implementations require
          * configUSE_TICKLESS_IDLE to be set to a value other than 1. */
         #if ( configUSE_TICKLESS_IDLE != 0 )
-            {
-                TickType_t xExpectedIdleTime;
-
-                /* It is not desirable to suspend then resume the scheduler on
-                 * each iteration of the idle task.  Therefore, a preliminary
-                 * test of the expected idle time is performed without the
-                 * scheduler suspended.  The result here is not necessarily
-                 * valid. */
-                xExpectedIdleTime = prvGetExpectedIdleTime();
-
-                if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
-                {
-                    vTaskSuspendAll();
-                    {
-                        /* Now the scheduler is suspended, the expected idle
-                         * time can be sampled again, and this time its value can
-                         * be used. */
-                        configASSERT( xNextTaskUnblockTime >= xTickCount );
-                        xExpectedIdleTime = prvGetExpectedIdleTime();
-
-                        /* Define the following macro to set xExpectedIdleTime to 0
-                         * if the application does not want
-                         * portSUPPRESS_TICKS_AND_SLEEP() to be called. */
-                        configPRE_SUPPRESS_TICKS_AND_SLEEP_PROCESSING( xExpectedIdleTime );
-
-                        if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
-                        {
-                            traceLOW_POWER_IDLE_BEGIN();
-                            portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime );
-                            traceLOW_POWER_IDLE_END();
-                        }
-                        else
-                        {
-                            mtCOVERAGE_TEST_MARKER();
-                        }
-                    }
-                    ( void ) xTaskResumeAll();
-                }
-                else
-                {
-                    mtCOVERAGE_TEST_MARKER();
-                }
-            }
+            prvTicklessIdle();
         #endif /* configUSE_TICKLESS_IDLE */
 
         #if ( configUSE_MINIMAL_IDLE_HOOK == 1 )
