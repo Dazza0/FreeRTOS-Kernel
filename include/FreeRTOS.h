@@ -334,6 +334,10 @@
     #define portCRITICAL_NESTING_IN_TCB    0
 #endif
 
+#ifndef portUSING_GRANULAR_LOCKS
+    #define portUSING_GRANULAR_LOCKS    0
+#endif
+
 #ifndef configMAX_TASK_NAME_LEN
     #define configMAX_TASK_NAME_LEN    16
 #endif
@@ -453,6 +457,22 @@
 
 #endif /* portGET_ISR_LOCK */
 
+#ifndef portRELEASE_SPINLOCK
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portRELEASE_SPINLOCK is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portGET_SPINLOCK
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portGET_SPINLOCK is required for granular locking
+    #endif
+
+#endif
+
 #ifndef portENTER_CRITICAL_FROM_ISR
 
     #if ( configNUMBER_OF_CORES > 1 )
@@ -465,6 +485,62 @@
 
     #if ( configNUMBER_OF_CORES > 1 )
         #error portEXIT_CRITICAL_FROM_ISR is required in SMP
+    #endif
+
+#endif
+
+#ifndef portSPINLOCK_TYPE
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portSPINLOCK_TYPE is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_EVENT_GROUP_SPINLOCK
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_EVENT_GROUP_SPINLOCK is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_QUEUE_SPINLOCK
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_QUEUE_SPINLOCK is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_STREAM_BUFFER_SPINLOCK
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_STREAM_BUFFER_SPINLOCK is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_KERNEL_TASK_SPINLOCK_STATIC
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_KERNEL_TASK_SPINLOCK_STATIC is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_KERNEL_ISR_SPINLOCK_STATIC
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_KERNEL_ISR_SPINLOCK_STATIC is required for granular locking
+    #endif
+
+#endif
+
+#ifndef portINIT_TIMERS_SPINLOCK_STATIC
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        #error portINIT_TIMERS_SPINLOCK_STATIC is required for granular locking
     #endif
 
 #endif
@@ -2176,12 +2252,28 @@
     #define traceRETURN_vTaskEnterCritical()
 #endif
 
+#ifndef traceENTER_vTaskEnterCriticalGranular
+    #define traceENTER_vTaskEnterCriticalGranular( ppxLockList, uxNumLocks )
+#endif
+
+#ifndef traceRETURN_vTaskEnterCriticalGranular
+    #define traceRETURN_vTaskEnterCriticalGranular()
+#endif
+
 #ifndef traceENTER_vTaskEnterCriticalFromISR
     #define traceENTER_vTaskEnterCriticalFromISR()
 #endif
 
 #ifndef traceRETURN_vTaskEnterCriticalFromISR
     #define traceRETURN_vTaskEnterCriticalFromISR( uxSavedInterruptStatus )
+#endif
+
+#ifndef traceENTER_vTaskEnterCriticalFromISRGranular
+    #define traceENTER_vTaskEnterCriticalFromISRGranular( ppxLockList, uxNumLocks )
+#endif
+
+#ifndef traceRETURN_vTaskEnterCriticalFromISRGranular
+    #define traceRETURN_vTaskEnterCriticalFromISRGranular( uxSavedInterruptStatus )
 #endif
 
 #ifndef traceENTER_vTaskExitCritical
@@ -2192,12 +2284,28 @@
     #define traceRETURN_vTaskExitCritical()
 #endif
 
+#ifndef traceENTER_vTaskExitCriticalGranular
+    #define traceENTER_vTaskExitCriticalGranular( ppxLockList, uxNumLocks )
+#endif
+
+#ifndef traceRETURN_vTaskExitCriticalGranular
+    #define traceRETURN_vTaskExitCriticalGranular()
+#endif
+
 #ifndef traceENTER_vTaskExitCriticalFromISR
     #define traceENTER_vTaskExitCriticalFromISR( uxSavedInterruptStatus )
 #endif
 
 #ifndef traceRETURN_vTaskExitCriticalFromISR
     #define traceRETURN_vTaskExitCriticalFromISR()
+#endif
+
+#ifndef traceENTER_vTaskExitCriticalFromISRGranular
+    #define traceENTER_vTaskExitCriticalFromISRGranular( ppxLockList, uxNumLocks, uxSavedInterruptStatus )
+#endif
+
+#ifndef traceRETURN_vTaskExitCriticalFromISRGranular
+    #define traceRETURN_vTaskExitCriticalFromISRGranular()
 #endif
 
 #ifndef traceENTER_vTaskListTasks
@@ -3143,6 +3251,10 @@ typedef struct xSTATIC_QUEUE
         UBaseType_t uxDummy8;
         uint8_t ucDummy9;
     #endif
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        volatile portSPINLOCK_TYPE xDummySpinlock;
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
 } StaticQueue_t;
 typedef StaticQueue_t StaticSemaphore_t;
 
@@ -3172,6 +3284,10 @@ typedef struct xSTATIC_EVENT_GROUP
     #if ( ( configSUPPORT_STATIC_ALLOCATION == 1 ) && ( configSUPPORT_DYNAMIC_ALLOCATION == 1 ) )
         uint8_t ucDummy4;
     #endif
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        volatile portSPINLOCK_TYPE xDummySpinlock;
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
 } StaticEventGroup_t;
 
 /*
@@ -3226,6 +3342,9 @@ typedef struct xSTATIC_STREAM_BUFFER
     #if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
         void * pvDummy5[ 2 ];
     #endif
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        volatile portSPINLOCK_TYPE xDummySpinlock;
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
 } StaticStreamBuffer_t;
 
 /* Message buffers are built on stream buffers. */

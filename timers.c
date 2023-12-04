@@ -153,6 +153,10 @@
     PRIVILEGED_DATA static QueueHandle_t xTimerQueue = NULL;
     PRIVILEGED_DATA static TaskHandle_t xTimerTaskHandle = NULL;
 
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        PRIVILEGED_DATA static volatile portSPINLOCK_TYPE xTimerSpinlock = portINIT_TIMERS_SPINLOCK_STATIC;
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
+
 /*lint -restore */
 
 /*-----------------------------------------------------------*/
@@ -576,7 +580,7 @@
         traceENTER_vTimerSetReloadMode( xTimer, xAutoReload );
 
         configASSERT( xTimer );
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             if( xAutoReload != pdFALSE )
             {
@@ -587,7 +591,7 @@
                 pxTimer->ucStatus &= ( ( uint8_t ) ~tmrSTATUS_IS_AUTORELOAD );
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
 
         traceRETURN_vTimerSetReloadMode();
     }
@@ -601,7 +605,7 @@
         traceENTER_xTimerGetReloadMode( xTimer );
 
         configASSERT( xTimer );
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             if( ( pxTimer->ucStatus & tmrSTATUS_IS_AUTORELOAD ) == 0 )
             {
@@ -614,7 +618,7 @@
                 xReturn = pdTRUE;
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
 
         traceRETURN_xTimerGetReloadMode( xReturn );
 
@@ -1107,7 +1111,7 @@
         /* Check that the list from which active timers are referenced, and the
          * queue used to communicate with the timer service, have been
          * initialised. */
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             if( xTimerQueue == NULL )
             {
@@ -1149,7 +1153,7 @@
                 mtCOVERAGE_TEST_MARKER();
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
     }
 /*-----------------------------------------------------------*/
 
@@ -1163,7 +1167,7 @@
         configASSERT( xTimer );
 
         /* Is the timer in the list of active timers? */
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             if( ( pxTimer->ucStatus & tmrSTATUS_IS_ACTIVE ) == 0 )
             {
@@ -1174,7 +1178,7 @@
                 xReturn = pdTRUE;
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
 
         traceRETURN_xTimerIsTimerActive( xReturn );
 
@@ -1191,11 +1195,11 @@
 
         configASSERT( xTimer );
 
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             pvReturn = pxTimer->pvTimerID;
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
 
         traceRETURN_pvTimerGetTimerID( pvReturn );
 
@@ -1212,11 +1216,11 @@
 
         configASSERT( xTimer );
 
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &xTimerSpinlock );
         {
             pxTimer->pvTimerID = pvNewID;
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &xTimerSpinlock );
 
         traceRETURN_vTimerSetTimerID();
     }

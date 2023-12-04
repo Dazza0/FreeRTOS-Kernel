@@ -134,6 +134,10 @@ typedef struct QueueDefinition /* The old naming convention is used to prevent b
         UBaseType_t uxQueueNumber;
         uint8_t ucQueueType;
     #endif
+
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+        volatile portSPINLOCK_TYPE xQueueSpinlock;
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
 } xQUEUE;
 
 /* The old xQUEUE name is maintained above then typedefed to the new Queue_t
@@ -252,19 +256,19 @@ static void prvInitialiseNewQueue( const UBaseType_t uxQueueLength,
  * Macro to mark a queue as locked.  Locking a queue prevents an ISR from
  * accessing the queue event lists.
  */
-#define prvLockQueue( pxQueue )                            \
-    taskENTER_CRITICAL();                                  \
-    {                                                      \
-        if( ( pxQueue )->cRxLock == queueUNLOCKED )        \
-        {                                                  \
-            ( pxQueue )->cRxLock = queueLOCKED_UNMODIFIED; \
-        }                                                  \
-        if( ( pxQueue )->cTxLock == queueUNLOCKED )        \
-        {                                                  \
-            ( pxQueue )->cTxLock = queueLOCKED_UNMODIFIED; \
-        }                                                  \
-    }                                                      \
-    taskEXIT_CRITICAL()
+#define prvLockQueue( pxQueue )                                    \
+    taskENTER_CRITICAL_GRANULAR_1( &( pxQueue->xQueueSpinlock ) ); \
+    {                                                              \
+        if( ( pxQueue )->cRxLock == queueUNLOCKED )                \
+        {                                                          \
+            ( pxQueue )->cRxLock = queueLOCKED_UNMODIFIED;         \
+        }                                                          \
+        if( ( pxQueue )->cTxLock == queueUNLOCKED )                \
+        {                                                          \
+            ( pxQueue )->cTxLock = queueLOCKED_UNMODIFIED;         \
+        }                                                          \
+    }                                                              \
+    taskEXIT_CRITICAL_GRANULAR_1( &( pxQueue->xQueueSpinlock ) )
 
 /*
  * Macro to increment cTxLock member of the queue data structure. It is
@@ -307,12 +311,21 @@ BaseType_t xQueueGenericReset( QueueHandle_t xQueue,
 
     configASSERT( pxQueue );
 
+    #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+    {
+        if( xNewQueue == pdTRUE )
+        {
+            portINIT_QUEUE_SPINLOCK( &( pxQueue->xQueueSpinlock ) );
+        }
+    }
+    #endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
+
     if( ( pxQueue != NULL ) &&
         ( pxQueue->uxLength >= 1U ) &&
         /* Check for multiplication overflow. */
         ( ( SIZE_MAX / pxQueue->uxLength ) >= pxQueue->uxItemSize ) )
     {
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
         {
             pxQueue->u.xQueue.pcTail = pxQueue->pcHead + ( pxQueue->uxLength * pxQueue->uxItemSize ); /*lint !e9016 Pointer arithmetic allowed on char types, especially when it assists conveying intent. */
             pxQueue->uxMessagesWaiting = ( UBaseType_t ) 0U;
@@ -351,7 +364,7 @@ BaseType_t xQueueGenericReset( QueueHandle_t xQueue,
                 vListInitialise( &( pxQueue->xTasksWaitingToReceive ) );
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     }
     else
     {
@@ -697,7 +710,7 @@ static void prvInitialiseNewQueue( const UBaseType_t uxQueueLength,
          * calling task is the mutex holder, but not a good way of determining the
          * identity of the mutex holder, as the holder may change between the
          * following critical section exiting and the function returning. */
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &( pxSemaphore->xQueueSpinlock ) );
         {
             if( pxSemaphore->uxQueueType == queueQUEUE_IS_MUTEX )
             {
@@ -708,7 +721,7 @@ static void prvInitialiseNewQueue( const UBaseType_t uxQueueLength,
                 pxReturn = NULL;
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &( pxSemaphore->xQueueSpinlock ) );
 
         traceRETURN_xQueueGetMutexHolder( pxReturn );
 
@@ -958,7 +971,7 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
      * interest of execution time efficiency. */
     for( ; ; )
     {
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
         {
             /* Is there room on the queue now?  The running task must be the
              * highest priority task wanting to access the queue.  If the head item
@@ -1064,7 +1077,7 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                 }
                 #endif /* configUSE_QUEUE_SETS */
 
-                taskEXIT_CRITICAL();
+                taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                 traceRETURN_xQueueGenericSend( pdPASS );
 
@@ -1076,7 +1089,7 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                 {
                     /* The queue was full and no block time is specified (or
                      * the block time has expired) so leave now. */
-                    taskEXIT_CRITICAL();
+                    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                     /* Return to the original privilege level before exiting
                      * the function. */
@@ -1099,7 +1112,7 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                 }
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
         /* Interrupts and other tasks can send to and receive from the queue
          * now the critical section has been exited. */
@@ -1190,7 +1203,7 @@ BaseType_t xQueueGenericSendFromISR( QueueHandle_t xQueue,
      * read, instead return a flag to say whether a context switch is required or
      * not (i.e. has a task with a higher priority than us been woken by this
      * post). */
-    uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+    taskENTER_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     {
         if( ( pxQueue->uxMessagesWaiting < pxQueue->uxLength ) || ( xCopyPosition == queueOVERWRITE ) )
         {
@@ -1315,7 +1328,7 @@ BaseType_t xQueueGenericSendFromISR( QueueHandle_t xQueue,
             xReturn = errQUEUE_FULL;
         }
     }
-    taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );
+    taskEXIT_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
     traceRETURN_xQueueGenericSendFromISR( xReturn );
 
@@ -1365,7 +1378,7 @@ BaseType_t xQueueGiveFromISR( QueueHandle_t xQueue,
      * link: https://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html */
     portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
 
-    uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+    taskENTER_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     {
         const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
 
@@ -1485,7 +1498,7 @@ BaseType_t xQueueGiveFromISR( QueueHandle_t xQueue,
             xReturn = errQUEUE_FULL;
         }
     }
-    taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );
+    taskEXIT_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
     traceRETURN_xQueueGiveFromISR( xReturn );
 
@@ -1522,7 +1535,7 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
      * interest of execution time efficiency. */
     for( ; ; )
     {
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
         {
             const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
 
@@ -1554,7 +1567,7 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
 
-                taskEXIT_CRITICAL();
+                taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                 traceRETURN_xQueueReceive( pdPASS );
 
@@ -1566,7 +1579,7 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                 {
                     /* The queue was empty and no block time is specified (or
                      * the block time has expired) so leave now. */
-                    taskEXIT_CRITICAL();
+                    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                     traceQUEUE_RECEIVE_FAILED( pxQueue );
                     traceRETURN_xQueueReceive( errQUEUE_EMPTY );
@@ -1587,7 +1600,7 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                 }
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
         /* Interrupts and other tasks can send to and receive from the queue
          * now the critical section has been exited. */
@@ -1678,7 +1691,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
      * of execution time efficiency. */
     for( ; ; )
     {
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
         {
             /* Semaphores are queues with an item size of 0, and where the
              * number of messages in the queue is the semaphore's count value. */
@@ -1727,7 +1740,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
 
-                taskEXIT_CRITICAL();
+                taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                 traceRETURN_xQueueSemaphoreTake( pdPASS );
 
@@ -1739,7 +1752,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                 {
                     /* The semaphore count was 0 and no block time is specified
                      * (or the block time has expired) so exit now. */
-                    taskEXIT_CRITICAL();
+                    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                     traceQUEUE_RECEIVE_FAILED( pxQueue );
                     traceRETURN_xQueueSemaphoreTake( errQUEUE_EMPTY );
@@ -1760,7 +1773,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                 }
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
         /* Interrupts and other tasks can give to and take from the semaphore
          * now the critical section has been exited. */
@@ -1783,11 +1796,11 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                 {
                     if( pxQueue->uxQueueType == queueQUEUE_IS_MUTEX )
                     {
-                        taskENTER_CRITICAL();
+                        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
                         {
                             xInheritanceOccurred = xTaskPriorityInherit( pxQueue->u.xSemaphore.xMutexHolder );
                         }
-                        taskEXIT_CRITICAL();
+                        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
                     }
                     else
                     {
@@ -1835,7 +1848,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                      * test the mutex type again to check it is actually a mutex. */
                     if( xInheritanceOccurred != pdFALSE )
                     {
-                        taskENTER_CRITICAL();
+                        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
                         {
                             UBaseType_t uxHighestWaitingPriority;
 
@@ -1847,7 +1860,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                             uxHighestWaitingPriority = prvGetDisinheritPriorityAfterTimeout( pxQueue );
                             vTaskPriorityDisinheritAfterTimeout( pxQueue->u.xSemaphore.xMutexHolder, uxHighestWaitingPriority );
                         }
-                        taskEXIT_CRITICAL();
+                        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
                     }
                 }
                 #endif /* configUSE_MUTEXES */
@@ -1896,7 +1909,7 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
      * interest of execution time efficiency. */
     for( ; ; )
     {
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
         {
             const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
 
@@ -1934,7 +1947,7 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
 
-                taskEXIT_CRITICAL();
+                taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                 traceRETURN_xQueuePeek( pdPASS );
 
@@ -1946,7 +1959,7 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                 {
                     /* The queue was empty and no block time is specified (or
                      * the block time has expired) so leave now. */
-                    taskEXIT_CRITICAL();
+                    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
                     traceQUEUE_PEEK_FAILED( pxQueue );
                     traceRETURN_xQueuePeek( errQUEUE_EMPTY );
@@ -1968,7 +1981,7 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                 }
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
         /* Interrupts and other tasks can send to and receive from the queue
          * now that the critical section has been exited. */
@@ -2056,7 +2069,7 @@ BaseType_t xQueueReceiveFromISR( QueueHandle_t xQueue,
      * link: https://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html */
     portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
 
-    uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+    taskENTER_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     {
         const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
 
@@ -2116,7 +2129,7 @@ BaseType_t xQueueReceiveFromISR( QueueHandle_t xQueue,
             traceQUEUE_RECEIVE_FROM_ISR_FAILED( pxQueue );
         }
     }
-    taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );
+    taskEXIT_CRITICAL_FROM_ISR_GRANULAR_3( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 
     traceRETURN_xQueueReceiveFromISR( xReturn );
 
@@ -2154,7 +2167,7 @@ BaseType_t xQueuePeekFromISR( QueueHandle_t xQueue,
      * link: https://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html */
     portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
 
-    uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+    taskENTER_CRITICAL_FROM_ISR_GRANULAR_1( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ) );
     {
         /* Cannot block in an ISR, so check there is data available. */
         if( pxQueue->uxMessagesWaiting > ( UBaseType_t ) 0 )
@@ -2175,7 +2188,7 @@ BaseType_t xQueuePeekFromISR( QueueHandle_t xQueue,
             traceQUEUE_PEEK_FROM_ISR_FAILED( pxQueue );
         }
     }
-    taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );
+    taskEXIT_CRITICAL_FROM_ISR_GRANULAR_1( uxSavedInterruptStatus, &( pxQueue->xQueueSpinlock ) );
 
     traceRETURN_xQueuePeekFromISR( xReturn );
 
@@ -2191,11 +2204,11 @@ UBaseType_t uxQueueMessagesWaiting( const QueueHandle_t xQueue )
 
     configASSERT( xQueue );
 
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) xQueue )->xQueueSpinlock ) );
     {
         uxReturn = ( ( Queue_t * ) xQueue )->uxMessagesWaiting;
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) xQueue )->xQueueSpinlock ) );
 
     traceRETURN_uxQueueMessagesWaiting( uxReturn );
 
@@ -2212,11 +2225,11 @@ UBaseType_t uxQueueSpacesAvailable( const QueueHandle_t xQueue )
 
     configASSERT( pxQueue );
 
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_1( &( pxQueue->xQueueSpinlock ) );
     {
         uxReturn = ( UBaseType_t ) ( pxQueue->uxLength - pxQueue->uxMessagesWaiting );
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_1( &( pxQueue->xQueueSpinlock ) );
 
     traceRETURN_uxQueueSpacesAvailable( uxReturn );
 
@@ -2488,7 +2501,7 @@ static void prvUnlockQueue( Queue_t * const pxQueue )
      * removed from the queue while the queue was locked.  When a queue is
      * locked items can be added or removed, but the event lists cannot be
      * updated. */
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     {
         int8_t cTxLock = pxQueue->cTxLock;
 
@@ -2566,10 +2579,11 @@ static void prvUnlockQueue( Queue_t * const pxQueue )
 
         pxQueue->cTxLock = queueUNLOCKED;
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
+
 
     /* Do the same for the Rx lock. */
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
     {
         int8_t cRxLock = pxQueue->cRxLock;
 
@@ -2596,7 +2610,7 @@ static void prvUnlockQueue( Queue_t * const pxQueue )
 
         pxQueue->cRxLock = queueUNLOCKED;
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_3( &( pxQueue->xQueueSpinlock ), &xKernelTaskLock, &xKernelISRLock );
 }
 /*-----------------------------------------------------------*/
 
@@ -2604,7 +2618,7 @@ static BaseType_t prvIsQueueEmpty( const Queue_t * pxQueue )
 {
     BaseType_t xReturn;
 
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) pxQueue )->xQueueSpinlock ) );
     {
         if( pxQueue->uxMessagesWaiting == ( UBaseType_t ) 0 )
         {
@@ -2615,7 +2629,7 @@ static BaseType_t prvIsQueueEmpty( const Queue_t * pxQueue )
             xReturn = pdFALSE;
         }
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) pxQueue )->xQueueSpinlock ) );
 
     return xReturn;
 }
@@ -2649,7 +2663,7 @@ static BaseType_t prvIsQueueFull( const Queue_t * pxQueue )
 {
     BaseType_t xReturn;
 
-    taskENTER_CRITICAL();
+    taskENTER_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) pxQueue )->xQueueSpinlock ) );
     {
         if( pxQueue->uxMessagesWaiting == pxQueue->uxLength )
         {
@@ -2660,7 +2674,7 @@ static BaseType_t prvIsQueueFull( const Queue_t * pxQueue )
             xReturn = pdFALSE;
         }
     }
-    taskEXIT_CRITICAL();
+    taskEXIT_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) pxQueue )->xQueueSpinlock ) );
 
     return xReturn;
 }
@@ -3187,7 +3201,7 @@ BaseType_t xQueueIsQueueFullFromISR( const QueueHandle_t xQueue )
 
         traceENTER_xQueueAddToSet( xQueueOrSemaphore, xQueueSet );
 
-        taskENTER_CRITICAL();
+        taskENTER_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) xQueueOrSemaphore )->xQueueSpinlock ) );
         {
             if( ( ( Queue_t * ) xQueueOrSemaphore )->pxQueueSetContainer != NULL )
             {
@@ -3206,7 +3220,7 @@ BaseType_t xQueueIsQueueFullFromISR( const QueueHandle_t xQueue )
                 xReturn = pdPASS;
             }
         }
-        taskEXIT_CRITICAL();
+        taskEXIT_CRITICAL_GRANULAR_1( &( ( ( Queue_t * ) xQueueOrSemaphore )->xQueueSpinlock ) );
 
         traceRETURN_xQueueAddToSet( xReturn );
 
@@ -3240,12 +3254,12 @@ BaseType_t xQueueIsQueueFullFromISR( const QueueHandle_t xQueue )
         }
         else
         {
-            taskENTER_CRITICAL();
+            taskENTER_CRITICAL_GRANULAR_1( &( pxQueueOrSemaphore->xQueueSpinlock ) );
             {
                 /* The queue is no longer contained in the set. */
                 pxQueueOrSemaphore->pxQueueSetContainer = NULL;
             }
-            taskEXIT_CRITICAL();
+            taskEXIT_CRITICAL_GRANULAR_1( &( pxQueueOrSemaphore->xQueueSpinlock ) );
             xReturn = pdPASS;
         }
 

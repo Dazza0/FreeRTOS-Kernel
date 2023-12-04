@@ -3640,7 +3640,12 @@ void vTaskYieldWithinAPI( void );
  * It should be used in the implementation of portENTER_CRITICAL if port is running a
  * multiple core FreeRTOS.
  */
-void vTaskEnterCritical( void );
+#if ( ( ( portCRITICAL_NESTING_IN_TCB == 1 ) && ( configNUMBER_OF_CORES == 1 ) ) || ( ( portUSING_GRANULAR_LOCKS == 0 ) && ( configNUMBER_OF_CORES > 1 ) ) )
+    void vTaskEnterCritical( void );
+#elif ( ( portUSING_GRANULAR_LOCKS == 1 ) && ( configNUMBER_OF_CORES > 1 ) )
+    void vTaskEnterCriticalGranular( volatile portSPINLOCK_TYPE ** ppxLockList,
+                                     UBaseType_t uxNumLocks );
+#endif
 
 /*
  * This function is only intended for use when implementing a port of the scheduler
@@ -3650,7 +3655,12 @@ void vTaskEnterCritical( void );
  * It should be used in the implementation of portEXIT_CRITICAL if port is running a
  * multiple core FreeRTOS.
  */
-void vTaskExitCritical( void );
+#if ( ( ( portCRITICAL_NESTING_IN_TCB == 1 ) && ( configNUMBER_OF_CORES == 1 ) ) || ( ( portUSING_GRANULAR_LOCKS == 0 ) && ( configNUMBER_OF_CORES > 1 ) ) )
+    void vTaskExitCritical( void );
+#elif ( ( portUSING_GRANULAR_LOCKS == 1 ) && ( configNUMBER_OF_CORES > 1 ) )
+    void vTaskExitCriticalGranular( volatile portSPINLOCK_TYPE ** ppxLockList,
+                                    UBaseType_t uxNumLocks );
+#endif
 
 /*
  * This function is only intended for use when implementing a port of the scheduler
@@ -3658,7 +3668,12 @@ void vTaskExitCritical( void );
  * should be used in the implementation of portENTER_CRITICAL_FROM_ISR if port is
  * running a multiple core FreeRTOS.
  */
-UBaseType_t vTaskEnterCriticalFromISR( void );
+#if ( ( ( portCRITICAL_NESTING_IN_TCB == 1 ) && ( configNUMBER_OF_CORES == 1 ) ) || ( ( portUSING_GRANULAR_LOCKS == 0 ) && ( configNUMBER_OF_CORES > 1 ) ) )
+    UBaseType_t vTaskEnterCriticalFromISR( void );
+#elif ( ( portUSING_GRANULAR_LOCKS == 1 ) && ( configNUMBER_OF_CORES > 1 ) )
+    UBaseType_t vTaskEnterCriticalFromISRGranular( volatile portSPINLOCK_TYPE ** ppxLockList,
+                                                   UBaseType_t uxNumLocks );
+#endif
 
 /*
  * This function is only intended for use when implementing a port of the scheduler
@@ -3666,7 +3681,121 @@ UBaseType_t vTaskEnterCriticalFromISR( void );
  * should be used in the implementation of portEXIT_CRITICAL_FROM_ISR if port is
  * running a multiple core FreeRTOS.
  */
-void vTaskExitCriticalFromISR( UBaseType_t uxSavedInterruptStatus );
+#if ( ( ( portCRITICAL_NESTING_IN_TCB == 1 ) && ( configNUMBER_OF_CORES == 1 ) ) || ( ( portUSING_GRANULAR_LOCKS == 0 ) && ( configNUMBER_OF_CORES > 1 ) ) )
+    void vTaskExitCriticalFromISR( UBaseType_t uxSavedInterruptStatus );
+#elif ( ( portUSING_GRANULAR_LOCKS == 1 ) && ( configNUMBER_OF_CORES > 1 ) )
+    void vTaskExitCriticalFromISRGranular( volatile portSPINLOCK_TYPE ** ppxLockList,
+                                           UBaseType_t uxNumLocks,
+                                           UBaseType_t uxSavedInterruptStatus );
+#endif
+
+#if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) )
+
+/* Granular enter critical section macros */
+    #define taskENTER_CRITICAL_GRANULAR_1( pxLock1 )                                                 \
+    do {                                                                                             \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */             \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ) };                                    \
+        vTaskEnterCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 1 ); \
+    } while( 0 )
+    #define taskENTER_CRITICAL_GRANULAR_2( pxLock1, pxLock2 )                                        \
+    do {                                                                                             \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */             \
+        volatile portSPINLOCK_TYPE * pxLocks[ 2 ] = { ( pxLock1 ), ( pxLock2 ) };                    \
+        vTaskEnterCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 2 ); \
+    } while( 0 )
+    #define taskENTER_CRITICAL_GRANULAR_3( pxLock1, pxLock2, pxLock3 )                               \
+    do {                                                                                             \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */             \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ), ( pxLock3 ) };          \
+        vTaskEnterCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 3 ); \
+    } while( 0 )
+
+/* Granular enter critical section from ISR macros */
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_1( uxInterruptStatus, pxLock1 )                                                    \
+    do {                                                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ) };                                                                   \
+        ( uxInterruptStatus ) = vTaskEnterCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 1 ); \
+    } while( 0 )
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_2( uxInterruptStatus, pxLock1, pxLock2 )                                           \
+    do {                                                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ) };                                                      \
+        ( uxInterruptStatus ) = vTaskEnterCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 2 ); \
+    } while( 0 )
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_3( uxInterruptStatus, pxLock1, pxLock2, pxLock3 )                                  \
+    do {                                                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ), ( pxLock3 ) };                                         \
+        ( uxInterruptStatus ) = vTaskEnterCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 3 ); \
+    } while( 0 )
+
+/* Granular exit critical section macros */
+    #define taskEXIT_CRITICAL_GRANULAR_1( pxLock1 )                                                 \
+    do {                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ) };                                   \
+        vTaskExitCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 1 ); \
+    } while( 0 )
+    #define taskEXIT_CRITICAL_GRANULAR_2( pxLock1, pxLock2 )                                        \
+    do {                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ) };                      \
+        vTaskExitCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 2 ); \
+    } while( 0 )
+    #define taskEXIT_CRITICAL_GRANULAR_3( pxLock1, pxLock2, pxLock3 )                               \
+    do {                                                                                            \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */            \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ), ( pxLock3 ) };         \
+        vTaskExitCriticalGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 3 ); \
+    } while( 0 )
+
+/* Granular eixt critical section from ISR macros */
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_1( uxInterruptStatus, pxLock1 )                                                   \
+    do {                                                                                                                          \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                          \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ) };                                                                 \
+        vTaskExitCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 1, ( uxInterruptStatus ) ); \
+    } while( 0 )
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_2( uxInterruptStatus, pxLock1, pxLock2 )                                          \
+    do {                                                                                                                          \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                          \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ) };                                                    \
+        vTaskExitCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 2, ( uxInterruptStatus ) ); \
+    } while( 0 )
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_3( uxInterruptStatus, pxLock1, pxLock2, pxLock3 )                                 \
+    do {                                                                                                                          \
+        /* List of pointers to the spinlocks to take, listed in the order to be taken */                                          \
+        volatile portSPINLOCK_TYPE * pxLocks[] = { ( pxLock1 ), ( pxLock2 ), ( pxLock3 ) };                                       \
+        vTaskExitCriticalFromISRGranular( ( volatile portSPINLOCK_TYPE ** ) &pxLocks, ( UBaseType_t ) 3, ( uxInterruptStatus ) ); \
+    } while( 0 )
+
+portDONT_DISCARD PRIVILEGED_DATA extern volatile portSPINLOCK_TYPE xKernelTaskLock;
+portDONT_DISCARD PRIVILEGED_DATA extern volatile portSPINLOCK_TYPE xKernelISRLock;
+#else /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
+
+/* Granular enter critical section macros */
+    #define taskENTER_CRITICAL_GRANULAR_1( pxLock1 )                                                  taskENTER_CRITICAL()
+    #define taskENTER_CRITICAL_GRANULAR_2( pxLock1, pxLock2 )                                         taskENTER_CRITICAL()
+    #define taskENTER_CRITICAL_GRANULAR_3( pxLock1, pxLock2, pxLock3 )                                taskENTER_CRITICAL()
+
+/* Granular enter critical section from ISR macros */
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_1( uxInterruptStatus, pxLock1 )                      { uxInterruptStatus = taskENTER_CRITICAL_FROM_ISR(); }
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_2( uxInterruptStatus, pxLock1, pxLock2 )             { uxInterruptStatus = taskENTER_CRITICAL_FROM_ISR(); }
+    #define taskENTER_CRITICAL_FROM_ISR_GRANULAR_3( uxInterruptStatus, pxLock1, pxLock2, pxLock3 )    { uxInterruptStatus = taskENTER_CRITICAL_FROM_ISR(); }
+
+/* Granular exit critical section macros */
+    #define taskEXIT_CRITICAL_GRANULAR_1( pxLock1 )                                                   taskEXIT_CRITICAL()
+    #define taskEXIT_CRITICAL_GRANULAR_2( pxLock1, pxLock2 )                                          taskEXIT_CRITICAL()
+    #define taskEXIT_CRITICAL_GRANULAR_3( pxLock1, pxLock2, pxLock3 )                                 taskEXIT_CRITICAL()
+
+/* Granular eixt critical section from ISR macros */
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_1( uxInterruptStatus, pxLock1 )                       taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus )
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_2( uxInterruptStatus, pxLock1, pxLock2 )              taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus )
+    #define taskEXIT_CRITICAL_FROM_ISR_GRANULAR_3( uxInterruptStatus, pxLock1, pxLock2, pxLock3 )     taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus )
+
+#endif /* #if ( ( configNUMBER_OF_CORES > 1 ) && ( portUSING_GRANULAR_LOCKS == 1 ) ) */
 
 #if ( portUSING_MPU_WRAPPERS == 1 )
 
